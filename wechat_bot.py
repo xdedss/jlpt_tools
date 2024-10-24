@@ -125,13 +125,52 @@ make one or more sentences in japanese using these words.
 - The sentences should be short and simple to beginners learning the language.
 - provide romaji and Chinese translation.
 - use json format {json_format}'''
+    
+    sentences = []
+    counter = 0
+    while (len(sentences) < 3 and counter < 3):
+        counter += 1
+
+        res = chat_once("You are a helpful assistant", prompt)
+
+        res_json = find_last_valid_json(res)
+        jsonschema.validate(res_json, EXAMPLE_SCHEMA)
+        sentences.extend(res_json)
+    
+    return sentences
+
+
+TIP_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "q": {
+                "type": "string",
+            },
+            "a": {
+                "type": "string",
+            },
+        },
+        "required": ["q", "a"],
+    }
+}
+
+def get_tips(context: str):
+    json_format = '[{"q": "问题", "a": "解答"}, ...]'
+    prompt = f'''```
+{context}
+```
+
+以上是一些日语词汇和读音、释义、例句。有哪些相关的容易让日语初学者产生疑问但上述信息没有覆盖到的知识点？
+- 只列出3条最重要的
+- 以Q&A的形式列出来，使用json格式：{json_format}'''
 
     res = chat_once("You are a helpful assistant", prompt)
 
     res_json = find_last_valid_json(res)
-    jsonschema.validate(res_json, EXAMPLE_SCHEMA)
+    jsonschema.validate(res_json, TIP_SCHEMA)
     return res_json
-
 
 @retry(tries=3, delay=300)
 def task_entry():
@@ -165,9 +204,20 @@ def task_entry():
     # build messages
     print('build messages')
     message = ''
+    tip_context = ''
     message += '==== 词汇 ====\n'
     for word in words:
-        message += f'''{word.word}: {word.furigana} ({word.romaji})\n{word.meaning}\n'''
+        message += f'''{word.word}: {word.furigana} ({word.romaji})\n'''
+        tip_context += f'''{word.word}: {word.furigana} ({word.romaji})\n'''
+        message += f'''{word.meaning}\n'''
+        formatted = set()
+        for pronunciation in word.data.get('pronunciations', []):
+            formatted.add(pronunciation['formatted'])
+        if (len(formatted) > 0):
+            # message += f"可能的读音声调:\n"
+            for s in formatted:
+                message += f"{s}\n"
+
         message += '\n'
     
     if (len(example_sentences) > 0):
@@ -177,11 +227,40 @@ def task_entry():
             romaji = sentence['romaji']
             chinese = sentence['chinese']
             message += f'''{text}\n{romaji}\n{chinese}\n'''
+            tip_context += f'''{text}\n{romaji}\n{chinese}\n'''
             message += '\n'
 
+    print("========== P1 ==========")
     print(message)
+    print("========== P1 ==========")
 
+    
+    message_p2 = ''
+    print('generating tips:')
+    tips = []
+    try:
+        tips = get_tips(tip_context)
+    except Exception:
+        traceback.print_exc()
+        print('unable to generate')
+        
+    if (len(tips) > 0):
+        message_p2 += '==== QA ====\n'
+        for tip in tips:
+            q = tip['q']
+            a = tip['a']
+            message_p2 += f'''Q:{q}\nA:{a}\n'''
+            message_p2 += '\n'
+    
+    print("========== P2 ==========")
+    print(message_p2)
+    print("========== P2 ==========")
+
+    print("Sending msg")
     r = send_to_wecom(message)
+    print(r)
+    time.sleep(0.5)
+    r = send_to_wecom(message_p2)
     print(r)
     
     progress += 1
