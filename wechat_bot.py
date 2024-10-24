@@ -127,6 +127,7 @@ make one or more sentences in japanese using these words.
 - use json format {json_format}'''
     
     sentences = []
+    sentences_dedup = set()
     counter = 0
     while (len(sentences) < 3 and counter < 3):
         counter += 1
@@ -135,7 +136,11 @@ make one or more sentences in japanese using these words.
 
         res_json = find_last_valid_json(res)
         jsonschema.validate(res_json, EXAMPLE_SCHEMA)
-        sentences.extend(res_json)
+
+        for s in res_json:
+            if (s['sentence'] not in sentences_dedup):
+                sentences.append(s)
+                sentences_dedup.add(s['sentence'])
     
     return sentences
 
