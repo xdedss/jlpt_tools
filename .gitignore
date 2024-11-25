@@ -176,6 +176,11 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python
 
 all_vocab*
+ACCDB_*
 legacies
 test.py
 temp
+
+wechat_bot.sh
+wechat_bot.bat
+wechat_bot_progress.txt
