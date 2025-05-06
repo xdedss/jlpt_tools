@@ -9,6 +9,8 @@ import vocab
 import traceback
 from typing import List
 from retry import retry
+import seeds
+import random
 
 logger = logging.getLogger('wechat_bot')
 
@@ -34,6 +36,8 @@ def send_to_wecom(text, wecom_touid='@all'):
             },
             "duplicate_check_interval": 600
         }
+        # print(data)
+        
         response = requests.post(send_msg_url, data=json.dumps(data)).content
         return response
     else:
@@ -177,8 +181,116 @@ def get_tips(context: str):
     jsonschema.validate(res_json, TIP_SCHEMA)
     return res_json
 
+
+JP_CN_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "jp": {
+                "type": "string",
+            },
+            "cn": {
+                "type": "string",
+            },
+        },
+        "required": ["jp", "cn"],
+    }
+}
+
+def get_trip_scene_v1():
+    
+    json_format = '[{"jp": "...", "cn": "中文翻译..."}, ...]'
+
+    places = random.sample(seeds.PLACES_JP, k=1)
+    verbs = random.sample(seeds.VERBS_JP, k=2)
+    nouns = random.sample(seeds.NOUNS_JP, k=2)
+
+    all_keywords = places + verbs + nouns
+
+    print(all_keywords)
+
+    prompt = f'''keywords: {", ".join(all_keywords)}
+
+以上是一些关键词，在这些关键词的基础上，发挥想象，自由创作，编一段小汪（ワンちゃん）和小喵（ネコちゃん）两个人在日本旅行时发生的故事，需要包含故事背景、开头、至少一段和旅行中遇到的人的对话、结尾。
+- 故事中的每一句话都要有日语原文和中文翻译，日语中的汉字词用括号内的平假名注音
+- 故事的整体难度适合日语初学者
+- 使用json格式的数组表示：{json_format}'''
+
+    res = chat_once("You are a helpful assistant", prompt)
+
+    res_json = find_last_valid_json(res)
+    jsonschema.validate(res_json, JP_CN_SCHEMA)
+    return res_json
+
+
+GRAMMAR_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "grammar_template": {
+                "type": "string",
+            },
+            "explanation": {
+                "type": "string",
+            },
+        },
+        "required": ["grammar_template", "explanation"],
+    }
+}
+
+def get_important_grammar(context: str):
+    json_format = '[{"grammar_template": "..", "explanation": "中文解释"}, ...]'
+    prompt = f'''```
+{context}
+```
+
+以上是一些日语句子，从中总结出两个重点语法或句式
+- 对于每个重点语法或句式，给出日语的句式模版和中文的语法讲解
+- 必须使用json格式的数组表示：{json_format}'''
+
+    res = chat_once("You are a helpful assistant", prompt)
+
+    res_json = find_last_valid_json(res)
+    jsonschema.validate(res_json, GRAMMAR_SCHEMA)
+    return res_json
+
+
+
 @retry(tries=3, delay=300)
 def task_entry():
+
+    trip_scene = get_trip_scene_v1()
+
+    raw_text = '\n'.join(d['jp'] for d in trip_scene)
+
+    # print(trip_scene)
+
+    grammar = get_important_grammar(raw_text)
+
+    # print(grammar)
+
+    print("Sending msg")
+    message_parts = []
+    for d in trip_scene:
+        message = f"{d['jp']}\n{d['cn']}"
+        message_parts.append(message)
+    merge_step = 5
+    for i in range(0, len(message_parts), merge_step):
+        message = '====== 故事 ======\n' if i == 0 else ''
+        message += '\n'.join(message_parts[i:i+merge_step])
+        r = send_to_wecom(message)
+        print(r)
+        time.sleep(1.5)
+    message_p2 = '====== 语法讲解 ======\n'
+    message_p2 += '\n'.join(f"{d['grammar_template']}\n{d['explanation']}" for d in grammar)
+    r = send_to_wecom(message_p2)
+    print(r)
+
+# legacy since 0506
+@retry(tries=3, delay=300)
+def task_entry_vocab():
     progress_file = 'wechat_bot_progress.txt'
     if (not os.path.isfile(progress_file)):
         with open(progress_file, 'w') as f:
